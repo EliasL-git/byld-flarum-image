@@ -1,0 +1,51 @@
+name: publish
+
+# Publishes the byld Flarum image so that a byld node can pull it.
+#
+# The build happens here rather than on a workstation because a package published from a
+# public repository is public, and a node pulls with no credentials of its own. A package
+# pushed from a workstation is created private, and GHCR has no endpoint that changes a
+# package's visibility afterwards, so where the build runs is the whole difference.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to publish
+        required: true
+        default: '2.0.0'
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - 'Caddyfile'
+      - 'entrypoint.sh'
+      - '.github/workflows/publish.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The image name is the repository name, which is what links the package to this
+      # repository and gives it this repository's visibility.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ inputs.tag || '2.0.0' }}
+            ghcr.io/${{ github.repository }}:latest

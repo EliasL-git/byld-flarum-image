@@ -1,0 +1,28 @@
+{
+	# Caddy's own admin API is off: nothing outside this container talks to Caddy,
+	# and it would otherwise listen on localhost:2019 inside the app.
+	admin off
+
+	# PHP's limits are set here rather than baked into the image, because the right
+	# figure depends on the plan the app is on: a 256 MB container cannot afford the
+	# same per-request ceiling as a 2 GB one. The defaults apply when the app's
+	# environment does not set them.
+	frankenphp {
+		php_ini memory_limit {$PHP_MEMORY_LIMIT:128M}
+		php_ini upload_max_filesize {$PHP_UPLOAD_MAX_SIZE:32M}
+		php_ini post_max_size {$PHP_UPLOAD_MAX_SIZE:32M}
+	}
+
+	auto_https off
+}
+
+# Plain HTTP on 8000. byld's own proxy terminates TLS and forwards to this port,
+# so Caddy here has no certificate to obtain and no redirect to make.
+:8000 {
+	root * /flarum/public
+	encode zstd gzip
+
+	# Serves the file when it exists and falls through to index.php otherwise,
+	# which is what Flarum needs: its routes are not files on disk.
+	php_server
+}
