@@ -11,6 +11,16 @@
 		php_ini memory_limit {$PHP_MEMORY_LIMIT:128M}
 		php_ini upload_max_filesize {$PHP_UPLOAD_MAX_SIZE:32M}
 		php_ini post_max_size {$PHP_UPLOAD_MAX_SIZE:32M}
+
+		# The application tree is immutable in the image, so a compiled file cannot
+		# change under a running container and the stat PHP does per included file
+		# per request is pure cost. Measured at the free plan's CPU quota this is
+		# worth nothing - what a request waits on there is the quota itself - but it
+		# is free at any quota, and the string buffer is raised because a forum with
+		# extensions on it has more than the default 8 MB to intern.
+		php_ini opcache.validate_timestamps 0
+		php_ini opcache.interned_strings_buffer 16
+		php_ini realpath_cache_ttl 600
 	}
 
 	auto_https off
@@ -21,6 +31,23 @@
 :8000 {
 	root * /flarum/public
 	encode zstd gzip
+
+	# Flarum publishes its compiled assets under a stable name with a content hash in
+	# the query string, so the URL changes when the bytes do and a year is safe.
+	# Everything else under /assets - fonts, images - is the image's own and can be
+	# replaced under the same name by an upgrade, so it gets an hour instead.
+	#
+	# The two matchers are exclusive on purpose. Caddy applies the last header
+	# directive that matches, so a plain `/assets/*` rule written as well would
+	# overwrite the versioned one and cache a font for a year.
+	@versioned path /assets/* query v=*
+	header @versioned Cache-Control "public, max-age=31536000, immutable"
+
+	@assetPlain {
+		path /assets/*
+		not query v=*
+	}
+	header @assetPlain Cache-Control "public, max-age=3600"
 
 	# Serves the file when it exists and falls through to index.php otherwise,
 	# which is what Flarum needs: its routes are not files on disk.

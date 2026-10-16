@@ -19,12 +19,30 @@ configuration, so supporting Postgres means a different image.
 
 - FrankenPHP on PHP 8.3, with every extension Flarum needs installed at build time so
   nothing is fetched at deploy.
-- `flarum/flarum` 2.0.0 resolved with `composer create-project`, so the dependency tree is
-  fixed at build time.
+- `flarum/flarum` 2.0.0, installed from the committed `composer.json` and `composer.lock`
+  rather than resolved at build time. The skeleton requires `flarum/core: ^2.0.0` and every
+  extension as `*` and ships no lock of its own, so a plain `composer create-project` picks
+  whatever is newest that day: two builds of the same tag two days apart produced
+  `flarum/core` 2.0.0 and 2.0.1, and a forum whose database records 2.0.0 answers **503
+  "Update Flarum"** to every visitor once its container is replaced. The lock is what makes
+  a rebuild safe.
 - An entrypoint that reads its whole configuration from the environment: it waits for the
   database, installs Flarum on first boot with the administrator account it is given, and
   starts the server on port 8000. It writes nothing to disk except the config, storage and
   published assets on the volume.
+
+## Versions
+
+`IMAGE_VERSION` holds the tag to publish, and it is the **image's** version rather than
+Flarum's: `2.0.0-1` is Flarum 2.0.0 in the first build of this image. The two are separate
+because the image changes for reasons that have nothing to do with Flarum - the entrypoint's
+boot path, the proxy's cache headers - and because byld pulls an image only when the tag is
+absent on the node, so republishing under an existing tag reaches nobody who already has it.
+
+Bump `IMAGE_VERSION` to publish a new build; a push to `main` builds and publishes whatever
+it holds. Keeping the Flarum version in the tag is deliberate: a tag reading `2.0.1` invites
+someone to bump `FLARUM_VERSION` to match, which upgrades every forum's code out from under a
+database that records the old version and serves them all a 503.
 
 The container runs as `www-data` and needs no capabilities beyond `CHOWN`, `SETUID` and
 `SETGID`, so it runs under a `no-new-privileges` policy.

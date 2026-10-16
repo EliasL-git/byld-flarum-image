@@ -38,13 +38,36 @@ ARG FLARUM_VERSION=2.0.0
 RUN install-php-extensions gd zip pdo_mysql pdo_pgsql intl @composer
 
 ENV FLARUM_ROOT=/flarum \
-    FLARUM_DATA=/data
+    FLARUM_DATA=/data \
+    FLARUM_IMAGE_STAMP=flarum-${FLARUM_VERSION}
 
 # The application tree is immutable and lives in the image, so a redeploy starts
-# from a known state. Only config, storage and published assets are on the
-# volume. `create-project` rather than a git clone: it resolves the dependency
-# tree at build time and the result is what composer would install for that tag.
+# from a known state. Only config, storage and published assets are on the volume.
+#
+# `create-project` lays down the skeleton, and then the committed composer.json and
+# composer.lock replace what it wrote and `composer install` builds the tree from
+# the lock. The lock is the point, and it is why it lives in this repository:
+#
+#   * The skeleton requires `flarum/core: ^2.0.0` - a range - and every extension as
+#     `*`, and it ships no lock of its own. A plain `create-project` therefore
+#     resolves the whole tree fresh at build time.
+#   * Two builds of the same tag two days apart produced `flarum/core` 2.0.0 and
+#     2.0.1. A forum whose database records 2.0.0 answers **503 "Update Flarum"** to
+#     every visitor the moment its container is replaced. Rebuilding this image was
+#     therefore a silent, breaking upgrade of every forum on the platform - the
+#     failure lands on users' sites, not on the build.
+#   * `flarum/core` is pinned exactly in composer.json rather than left a range, so
+#     a stale lock cannot be quietly satisfied by a newer core.
+#
+# With the lock, the tree a build produces is the tree that was tested. Both files
+# come from one `composer update`, so the lock's content hash matches the
+# composer.json beside it and `composer install` resolves nothing.
+COPY composer.json composer.lock /tmp/byld-flarum-deps/
 RUN composer create-project "flarum/flarum:${FLARUM_VERSION}" "$FLARUM_ROOT" \
+      --no-interaction --no-progress --prefer-dist --no-install \
+ && cp /tmp/byld-flarum-deps/composer.json /tmp/byld-flarum-deps/composer.lock "$FLARUM_ROOT/" \
+ && rm -rf /tmp/byld-flarum-deps \
+ && composer install --working-dir="$FLARUM_ROOT" \
       --no-interaction --no-progress --prefer-dist \
  && mkdir -p "$FLARUM_DATA/storage" "$FLARUM_DATA/assets" \
  && chown -R www-data:www-data "$FLARUM_ROOT" "$FLARUM_DATA"

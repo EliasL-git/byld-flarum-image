@@ -6,20 +6,29 @@ name: publish
 # public repository is public, and a node pulls with no credentials of its own. A package
 # pushed from a workstation is created private, and GHCR has no endpoint that changes a
 # package's visibility afterwards, so where the build runs is the whole difference.
+#
+# The tag comes from IMAGE_VERSION rather than a literal in this file, so the version that
+# will be published is visible in the tree and bumping it is what ships a new one. That
+# matters because republishing an existing tag ships nothing: byld's `ensureImage` pulls
+# only when the tag is absent on the node, so a node that already has it keeps the old
+# bytes and the change never arrives.
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: The tag to publish
-        required: true
-        default: '2.0.0'
+        description: The tag to publish, overriding IMAGE_VERSION
+        required: false
+        default: ''
   push:
     branches: [main]
     paths:
       - 'Dockerfile'
       - 'Caddyfile'
       - 'entrypoint.sh'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'IMAGE_VERSION'
       - '.github/workflows/publish.yml'
 
 permissions:
@@ -40,6 +49,15 @@ jobs:
         id: image
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
+      # A manual run may name a tag; a push publishes the version committed in the tree.
+      - name: Read the version to publish
+        id: version
+        run: |
+          tag='${{ inputs.tag }}'
+          [ -n "$tag" ] || tag="$(cat IMAGE_VERSION)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publishing $tag"
+
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -53,5 +71,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ steps.image.outputs.name }}:${{ inputs.tag || '2.0.0' }}
+            ${{ steps.image.outputs.name }}:${{ steps.version.outputs.tag }}
             ${{ steps.image.outputs.name }}:latest
